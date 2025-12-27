@@ -56,9 +56,9 @@ math.add()
    require方法接受一个标识符作为参数。在Node实现中，正是基于这样一个标识符进行模块查找的。模块标识符在Node中主要分为以下几类：
 
     1.
-    核心模块：http、fs，核心模块的优先级仅次于缓存加载，它在Node的源代码编译过程中已经编译为二进制代码，加载过程最快。如果试图加载一个与核心模块标识符相同的自定义模块，那是不会成功的。如果自己编写了一个http用户模块，想要加载成功，必须选择一个不同的标识符或者换用路径的方式。
+   核心模块：http、fs，核心模块的优先级仅次于缓存加载，它在Node的源代码编译过程中已经编译为二进制代码，加载过程最快。如果试图加载一个与核心模块标识符相同的自定义模块，那是不会成功的。如果自己编写了一个http用户模块，想要加载成功，必须选择一个不同的标识符或者换用路径的方式。
     2.
-    路径形式的文件模块：以.、..和/开始的标识符，这里都被当做文件模块来处理。在分析路径模块时，require会将路径转为真实路径，并以真实路径作为索引，将编译执行后的结果存放到缓存中，以使二次加载时更快。由于文件模块给Node指明了确切的文件位置，所以在查找过程中可以节约大量时间，其加载速度慢于核心模块。
+   路径形式的文件模块：以.、..和/开始的标识符，这里都被当做文件模块来处理。在分析路径模块时，require会将路径转为真实路径，并以真实路径作为索引，将编译执行后的结果存放到缓存中，以使二次加载时更快。由于文件模块给Node指明了确切的文件位置，所以在查找过程中可以节约大量时间，其加载速度慢于核心模块。
     3. 自定义模块：非核心模块，也不是路径形式的标识符。它是一种特殊的文件模块，可能是一个文件或者包的形式。
        这类模块的查找是最费时的，也是所有方式中最慢的一种。从当前文件目录下的node_modules目录==>
        父目录下的node_modules目录==>父目录的父目录下的node_modules目录==>
@@ -189,7 +189,7 @@ http.createServer((req, res) => {
 > ```js
 > // 使用中间函数
 > http.createServer((req, res) => {
-> getTitles(res);
+>    getTitles(res);
 > }).listen(8000, '127.0.0.1');
 > // 尽早返回
 > if (err) return hadError(err, res);
@@ -208,7 +208,8 @@ const server = net.createServer(socket => {
         socket.write(data);
     });
 });
-server.listen(8888); 
+server.listen(8888);
+// dism /online /Enable-Feature /FeatureName:TelnetClient 开启telnet功能
 ```
 
 #### 只响应一次
@@ -233,5 +234,173 @@ channel.on('join', () => {
 // 发射join事件
 channel.emit("join")
 ```
+
 > 事件是可以具有任意字符串值的键：data、join 或某些长的让人发疯
-的事件名都行。只有一个事件是特殊的，那就是 error
+> 的事件名都行。只有一个事件是特殊的，那就是 error
+
+#### 聊天室的例子
+
+```js
+const events = require('events');
+const net = require('net');
+const channel = new events.EventEmitter();
+channel.clients = {};
+channel.subscriptions = {};
+channel.on('join', function (id, client) {
+    this.clients[id] = client;
+    this.subscriptions[id] = (senderId, message) => {
+        if (id != senderId) {
+            this.clients[id].write(message);
+        }
+    };
+    // 为每个客户端注册一个broadcast事件的监听器
+    this.on('broadcast', this.subscriptions[id]);
+});
+channel.on('leave', function (id) {
+    channel.removeListener(
+        'broadcast', this.subscriptions[id]
+    );
+    channel.emit('broadcast', id, `${id} has left the chatroom.\n`);
+});
+channel.on('shutdown', () => {
+    channel.emit('broadcast', '', 'The server has shut down.\n');
+    channel.removeAllListeners('broadcast');
+});
+
+const server = net.createServer(client => {
+    const id = `${client.remoteAddress}:${client.remotePort}`;
+    console.log(id)
+    channel.emit('join', id, client);
+    client.on('data', data => {
+        data = data.toString();
+        if (data === 'shutdown\r\n') {
+            channel.emit('shutdown');
+        }
+        channel.emit('broadcast', id, data);
+    });
+    client.on('close', () => {
+        channel.emit('leave', id);
+    });
+});
+server.listen(8888); 
+```
+
+`EventEmitter`内部结构，监听器绑定在事件发生器上，这样就能挨个通知，
+
+```js
+channel._events = {
+    'broadcast': [
+        function listenerForA(senderId, message) {
+        },  // 索引0
+        function listenerForB(senderId, message) {
+        },  // 索引1  
+        function listenerForC(senderId, message) {
+        }   // 索引2
+    ],
+    'join': [
+        function joinHandler(id, client) {
+        }
+    ]
+}
+```
+
+#### 继承事件发生器
+
+```js
+const fs = require('fs');
+const events = require('events');
+
+class Watcher extends events.EventEmitter {
+    constructor(watchDir, processedDir) {
+        super();
+        this.watchDir = watchDir;
+        this.processedDir = processedDir;
+    }
+
+    watch() {
+        fs.readdir(this.watchDir, (err, files) => {
+            if (err) throw err;
+            for (var index in files) {
+                this.emit('process', files[index]);
+            }
+        });
+    }
+
+    start() {
+        fs.watchFile(this.watchDir, () => {
+            this.watch();
+        });
+    }
+}
+
+module.exports = Watcher;
+```
+
+```js
+const watcher = new Watcher(watchDir, processedDir);
+watcher.on('process', (file) => {
+    const watchFile = `${watchDir}/${file}`;
+    const processedFile = `${processedDir}/${file.toLowerCase()}`;
+    fs.rename(watchFile, processedFile, err => {
+        if (err) throw err;
+    });
+});
+watcher.start();
+```
+
+#### 并行化流程控制
+
+为了用串行化流程控制让几个异步任务按顺序执行，需要先把这些任务按预期的执行顺序
+放到一个数组中，这个数组将起到队列的作用：完成一个任务后按顺序从数组中取出下一个。
+为了让异步任务并行执行，仍然是要把任务放到数组中，但任务的存放顺序无关紧要。
+
+```js
+const fs = require('fs');
+const tasks = [];
+const wordCounts = {};
+const filesDir = './text';
+let completedTasks = 0;
+
+
+function checkIfComplete() {
+    completedTasks++;
+    if (completedTasks === tasks.length) {
+        for (let index in wordCounts) {
+            console.log(`${index}: ${wordCounts[index]}`);
+        }
+    }
+}
+
+function addWordCount(word) {
+    wordCounts[word] = (wordCounts[word]) ? wordCounts[word] + 1 : 1;
+}
+
+function countWordsInText(text) {
+    const words = text
+        .toString()
+        .toLowerCase()
+        .split(/\W+/)
+        .sort();
+    words
+        .filter(word => word)
+        .forEach(word => addWordCount(word));
+}
+
+
+fs.readdir(filesDir, (err, files) => {
+    if (err) throw err;
+    files.forEach(file => {
+        const task = (file => {
+            return () => {
+                fs.readFile(file, (err, text) => {
+                    if (err) throw err;
+                    countWordsInText(text);
+                    checkIfComplete();
+                });
+            };
+        })(`${filesDir}/${file}`);
+        tasks.push(task);
+    })
+    tasks.forEach(task => task());
+}); 
+```
