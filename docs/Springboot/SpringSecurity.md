@@ -108,8 +108,6 @@ Spring Security 的 DSL 使用流式API和构建器模式。每个配置方法�
 ```
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
-
-  
   @Override
   public void addViewControllers(ViewControllerRegistry registry) {
      // 将 "/" 映射到名为 "home" 的视图
