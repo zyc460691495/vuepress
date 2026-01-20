@@ -1,2 +1,4 @@
 /node_modules/
 /docs/Node.js/express-demo/node_modules/
+/docs/.vuepress/.cache/
+/docs/.vuepress/.temp/
